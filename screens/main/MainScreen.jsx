@@ -8,6 +8,12 @@ import { useFetching } from "../../hooks/useFetching";
 import Chat from "../../API/Chat";
 import { useSelector, useDispatch } from "react-redux";
 import User from "../../API/User";
+navigator.__defineGetter__("userAgent", function () {
+  // you have to import rect native first !!
+  return "react-native";
+});
+import { io } from "socket.io-client";
+import { useRef } from "react";
 
 const MainScreen = ({ navigation }) => {
   const chatModel = new Chat();
@@ -52,9 +58,25 @@ const MainScreen = ({ navigation }) => {
     }
   };
 
+  // socket io
+  const socket = useRef();
+
   useEffect(() => {
+    socket.current = io("http://185.20.226.53:8900", {
+      transports: ["websocket"], // you need to explicitly tell it to use websockets
+    });
+
+    dispatch({ type: "chat/setSocket", payload: socket });
     chatsFetch();
+    // socket listeniers
+    socket.current.on("addChat", (chat) => {
+      dispatch({ type: "chat/addChat", payload: chat });
+    });
   }, []);
+
+  useEffect(() => {
+    socket.current.emit("addUser", user._id);
+  }, [user]);
 
   useEffect(() => {
     console.log(chats);

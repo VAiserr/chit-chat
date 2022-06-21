@@ -28,4 +28,13 @@ export default class Chat {
     console.log("done");
     return response.data;
   }
+
+  async delete({ chatId, userId }) {
+    console.log("deleting chat");
+    const response = await this.axios.delete(`${this.apiUrl}/chat/${chatId}`, {
+      userId: userId,
+    });
+    console.log("done");
+    return response.data;
+  }
 }

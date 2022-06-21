@@ -4,7 +4,7 @@ export default class Message {
 
   async getLast(id) {
     console.log("getting message");
-    const response = await this.axios(`${this.apiUrl + id}?_limit=1`);
+    const response = await this.axios(`${this.apiUrl + id}?_limit=1&order=-1`);
     console.log("done");
     return response.data;
   }

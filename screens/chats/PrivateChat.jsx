@@ -1,7 +1,13 @@
-import { KeyboardAvoidingView, StyleSheet, Text, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+} from "react-native";
 import React, { useEffect } from "react";
 import ChatActionBar from "../../components/actionBars/ChatActionBar";
-import { ScrollView } from "react-native-gesture-handler";
+import {} from "react-native-gesture-handler";
 import { useState } from "react";
 import { useFetching } from "../../hooks/useFetching";
 import { useDispatch, useSelector } from "react-redux";
@@ -9,6 +15,7 @@ import { Appbar, TextInput, useTheme } from "react-native-paper";
 import Chat from "../../API/Chat";
 import Message from "../../API/Message";
 import { ActivityIndicator } from "react-native-paper";
+import { useRef } from "react";
 
 export default function PrivateChat({ navigation, route }) {
   const params = route.params;
@@ -17,12 +24,15 @@ export default function PrivateChat({ navigation, route }) {
   const dispatch = useDispatch();
   const ucFirst = (str) => (str ? str[0].toUpperCase() + str.slice(1) : "");
   const { user } = useSelector((state) => state.auth);
+  const { socket } = useSelector((state) => state.chat);
   const { colors } = useTheme();
   const [messageValue, setMessageValue] = useState("");
   const [newMessage, setNewMessage] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isNew, setIsNew] = useState(false);
   const [chat, setChat] = useState(null);
+  const scrollViewRef = useRef();
+  const [arrivalMessage, setArrivalMessage] = useState(null);
   const [fetchMessages, messagesIsFetching, messagesError] = useFetching(
     async () => {
       console.log(chat._id);
@@ -61,6 +71,10 @@ export default function PrivateChat({ navigation, route }) {
       receiverId: params.contact._id,
     });
     dispatch({ type: "chat/addChat", payload: chat });
+    socket.current.emit("createChat", {
+      chat: chat,
+      receiverId: params.contact._id,
+    });
     let { title, ...other } = chat;
     setChat((prev) => ({ ...prev, other }));
     setIsNew(false);
@@ -78,7 +92,25 @@ export default function PrivateChat({ navigation, route }) {
     else if (params.chat) {
       setChat({ ...params.chat, title: params.chatTitle });
     }
+    // socket listeniers
+    socket.current.on("getMessage", (data) => {
+      setArrivalMessage({
+        sender: data.senderId,
+        text: data.text,
+        chatId: data.chatId,
+        createdAt: Date.now(),
+      });
+    });
   }, []);
+
+  // socket on arrival
+  useEffect(() => {
+    console.log(arrivalMessage);
+    if (arrivalMessage && chat._id === arrivalMessage.chatId) {
+      setMessages((prev) => [...prev, arrivalMessage]);
+      setArrivalMessage(null);
+    }
+  }, [arrivalMessage]);
 
   useEffect(() => {
     if (chat?._id) fetchMessages();
@@ -89,6 +121,7 @@ export default function PrivateChat({ navigation, route }) {
   }, [error]);
 
   const handleSubmit = async () => {
+    if (!messageValue.trim()) return;
     let message = {};
     if (isNew) {
       let chat = await createChat();
@@ -105,6 +138,12 @@ export default function PrivateChat({ navigation, route }) {
         sender: user._id,
         text: messageValue.trim(),
       };
+    socket.current.emit("sendMessage", {
+      senderId: user._id,
+      receiverId: params.contact._id,
+      chatId: chat._id,
+      text: messageValue.trim(),
+    });
     // console.log(message);
     setNewMessage(message);
     setMessageValue("");
@@ -113,6 +152,7 @@ export default function PrivateChat({ navigation, route }) {
   useEffect(() => {
     if (newMessage) {
       sendMessage(newMessage);
+      // dispatch({ type: "chat/setLastMessage", payload: newMessage });
       setNewMessage("");
     }
   }, [newMessage]);
@@ -135,7 +175,7 @@ export default function PrivateChat({ navigation, route }) {
     },
     messagesList: {
       // flex: 1,
-      flexDirection: "column-reverse",
+      // flexDirection: "column-reverse",
     },
     sender: {
       backgroundColor: colors.light,
@@ -162,47 +202,58 @@ export default function PrivateChat({ navigation, route }) {
   });
 
   return (
-    <View style={styles.container}>
+    <>
       <Appbar.Header>
         <Appbar.BackAction onPress={navigation.goBack} />
         <Appbar.Content title={chat ? chat.title : ""} />
         <Appbar.Action icon={"dots-vertical"} />
       </Appbar.Header>
-      <KeyboardAvoidingView style={styles.chatContainer}>
-        <>
-          <ScrollView style={styles.messagesList}>
-            {messages.map((message, index) => {
-              if (message.sender === user._id)
-                return (
-                  <View style={styles.sender} key={index}>
-                    <Text style={styles.senderText}>{message.text}</Text>
-                  </View>
-                );
-              else
-                return (
-                  <View style={styles.reciever} key={index}>
-                    <Text>{message.text}</Text>
-                  </View>
-                );
-            })}
+
+      <KeyboardAvoidingView style={styles.container}>
+        <View style={styles.chatContainer}>
+          <ScrollView
+            ref={scrollViewRef}
+            onContentSizeChange={() =>
+              scrollViewRef.current.scrollToEnd({ animated: false })
+            }
+          >
+            <View style={styles.messagesList}>
+              {messages.map((message, index) => {
+                if (message.sender === user._id)
+                  return (
+                    <View style={styles.sender} key={index}>
+                      <Text style={styles.senderText}>{message.text}</Text>
+                    </View>
+                  );
+                else
+                  return (
+                    <View style={styles.reciever} key={index}>
+                      <Text>{message.text}</Text>
+                    </View>
+                  );
+              })}
+            </View>
           </ScrollView>
-          <View style={styles.footer}>
-            <TextInput
-              style={styles.inpute}
-              placeholder="Сообщение"
-              value={messageValue}
-              onChangeText={(val) => setMessageValue(val)}
-              right={
-                sending ? (
-                  <ActivityIndicator size={"large"} />
-                ) : (
-                  <TextInput.Icon name="send" onPress={handleSubmit} />
-                )
-              }
-            />
-          </View>
-        </>
+        </View>
+        <View style={styles.footer}>
+          <TextInput
+            style={styles.inpute}
+            placeholder="Сообщение"
+            value={messageValue}
+            onChangeText={(val) => setMessageValue(val)}
+            onFocus={() =>
+              scrollViewRef.current.scrollToEnd({ animated: true })
+            }
+            right={
+              sending ? (
+                <ActivityIndicator size={"large"} />
+              ) : (
+                <TextInput.Icon name="send" onPress={handleSubmit} />
+              )
+            }
+          />
+        </View>
       </KeyboardAvoidingView>
-    </View>
+    </>
   );
 }
